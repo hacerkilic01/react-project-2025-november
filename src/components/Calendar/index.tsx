@@ -28,19 +28,35 @@ type CalendarContainerProps = {
   auth: UserInstance;
 };
 
+// Shift ve staff bazlı renk üretme fonksiyonu
+const generateColor = (shiftId: string, staffId: string) => {
+  const hash = (str: string) => {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = str.charCodeAt(i) + ((h << 5) - h);
+    }
+    return h;
+  };
+
+  const combined = `${shiftId}-${staffId}`;
+  const hue = Math.abs(hash(combined)) % 360;
+  return `hsl(${hue}, 65%, 55%)`;
+};
+
 const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
   const calendarRef = useRef<FullCalendar>(null);
 
   const [events, setEvents] = useState<EventInput[]>([]);
   const [highlightedDates, setHighlightedDates] = useState<string[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [showPopup, setShowPopup] = useState<boolean>(false);
   const [initialDate, setInitialDate] = useState<Date>(
     dayjs(schedule?.scheduleStartDate).toDate()
   );
 
   const getPlugins = () => {
     const plugins = [dayGridPlugin];
-
     plugins.push(interactionPlugin);
     return plugins;
   };
@@ -49,8 +65,12 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
     return schedule?.shifts?.find((shift: { id: string }) => id === shift.id);
   };
 
-  const getAssigmentById = (id: string) => {
+  const getAssignmentById = (id: string) => {
     return schedule?.assignments?.find((assign) => id === assign.id);
+  };
+
+  const getStaffById = (id: string) => {
+    return schedule?.staffs?.find((staff: { id: string }) => id === staff.id);
   };
 
   const validDates = () => {
@@ -82,30 +102,45 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
   };
 
   const generateStaffBasedCalendar = () => {
+    if (!selectedStaffId) return;
+
     const works: EventInput[] = [];
 
-    const filteredAssignments = schedule?.assignments?.filter(
-      (assign) => assign.staffId === selectedStaffId
-    ) || [];
+    const filteredAssignments =
+      schedule?.assignments?.filter(
+        (assign) => assign.staffId === selectedStaffId
+      ) || [];
 
     for (let i = 0; i < filteredAssignments.length; i++) {
+      const assignment = filteredAssignments[i];
       const assignmentDate = dayjs
-        .utc(filteredAssignments[i]?.shiftStart)
+        .utc(assignment?.shiftStart)
         .format("YYYY-MM-DD");
       const isValidDate = validDates().includes(assignmentDate);
+      const shift = getShiftById(assignment?.shiftId);
+
+      const eventColor = generateColor(assignment.shiftId, assignment.staffId);
 
       const work = {
-        id: filteredAssignments[i]?.id,
-        title: getShiftById(filteredAssignments[i]?.shiftId)?.name,
+        id: assignment?.id,
+        title: shift?.name || "Unknown Shift",
         duration: "01:00",
         date: assignmentDate,
-        staffId: filteredAssignments[i]?.staffId,
-        shiftId: filteredAssignments[i]?.shiftId,
+        start: assignment?.shiftStart,
+        end: assignment?.shiftEnd,
+        staffId: assignment?.staffId,
+        shiftId: assignment?.shiftId,
+        backgroundColor: eventColor,
+        borderColor: eventColor,
+        textColor: "#ffffff",
         className: `event ${
-          getAssigmentById(filteredAssignments[i]?.id)?.isUpdated
-            ? "highlight"
-            : ""
+          getAssignmentById(assignment?.id)?.isUpdated ? "highlight" : ""
         } ${!isValidDate ? "invalid-date" : ""}`,
+        extendedProps: {
+          assignment: assignment,
+          shift: shift,
+          color: eventColor,
+        },
       };
       works.push(work);
     }
@@ -129,19 +164,49 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
   };
 
   useEffect(() => {
-    const firstStaffId = schedule?.staffs?.[0]?.id;
-    setSelectedStaffId(firstStaffId);
-    generateStaffBasedCalendar();
+    if (schedule?.staffs && schedule.staffs.length > 0) {
+      const firstStaffId = schedule.staffs[0].id;
+      setSelectedStaffId(firstStaffId);
+    }
   }, [schedule]);
 
   useEffect(() => {
-    generateStaffBasedCalendar();
-  }, [selectedStaffId]);
+    if (selectedStaffId) {
+      generateStaffBasedCalendar();
+    }
+  }, [selectedStaffId, schedule]);
+
+  const handleEventClick = (clickInfo: any) => {
+    const event = clickInfo.event;
+    const assignment = event.extendedProps.assignment;
+    const shift = event.extendedProps.shift;
+    const staff = getStaffById(event.extendedProps.assignment.staffId);
+
+    setSelectedEvent({
+      staffName: staff?.name || "Unknown Staff",
+      shiftName: shift?.name || "Unknown Shift",
+      date: dayjs(assignment.shiftStart).format("DD.MM.YYYY"),
+      startTime: dayjs(assignment.shiftStart).format("HH:mm"),
+      endTime: dayjs(assignment.shiftEnd).format("HH:mm"),
+    });
+    setShowPopup(true);
+  };
 
   const RenderEventContent = ({ eventInfo }: any) => {
+    const color = eventInfo.event.extendedProps.color;
     return (
-      <div className="event-content">
-        <p>{eventInfo.event.title}</p>
+      <div
+        className="event-content"
+        style={{
+          backgroundColor: color,
+          borderColor: color,
+          color: "#ffffff",
+          padding: "2px 4px",
+          borderRadius: "3px",
+          border: `1px solid ${color}`,
+        }}
+      >
+        <p style={{ margin: 0, fontSize: "12px" }}>{eventInfo.event.title}</p>
       </div>
     );
   };
@@ -184,9 +249,11 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
           initialDate={initialDate}
           events={events}
           firstDay={1}
+          eventDisplay="block"
           dayMaxEventRows={4}
           fixedWeekCount={true}
           showNonCurrentDates={true}
+          eventClick={handleEventClick}
           eventContent={(eventInfo: any) => (
             <RenderEventContent eventInfo={eventInfo} />
           )}
@@ -242,6 +309,48 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
           }}
         />
       </div>
+
+      {/* Event Detail Popup */}
+      {showPopup && selectedEvent && (
+        <div
+          className="event-popup-overlay"
+          onClick={() => setShowPopup(false)}
+        >
+          <div
+            className="event-popup-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="popup-header">
+              <h3>Etkinlik Detayları</h3>
+              <button className="close-btn" onClick={() => setShowPopup(false)}>
+                ×
+              </button>
+            </div>
+            <div className="popup-body">
+              <div className="popup-row">
+                <strong>Personel:</strong>
+                <span>{selectedEvent.staffName}</span>
+              </div>
+              <div className="popup-row">
+                <strong>Vardiya:</strong>
+                <span>{selectedEvent.shiftName}</span>
+              </div>
+              <div className="popup-row">
+                <strong>Tarih:</strong>
+                <span>{selectedEvent.date}</span>
+              </div>
+              <div className="popup-row">
+                <strong>Başlangıç Saati:</strong>
+                <span>{selectedEvent.startTime}</span>
+              </div>
+              <div className="popup-row">
+                <strong>Bitiş Saati:</strong>
+                <span>{selectedEvent.endTime}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
