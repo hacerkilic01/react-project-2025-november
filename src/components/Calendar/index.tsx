@@ -3,19 +3,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useEffect, useRef, useState } from "react";
-
+import { useDispatch } from "react-redux";
+import { updateAssignment } from "../../store/schedule/scheduleSlice";
 import type { ScheduleInstance } from "../../models/schedule";
 import type { UserInstance } from "../../models/user";
-
 import FullCalendar from "@fullcalendar/react";
-
 import interactionPlugin from "@fullcalendar/interaction";
 import dayGridPlugin from "@fullcalendar/daygrid";
-
 import type { EventInput } from "@fullcalendar/core/index.js";
-
 import "../profileCalendar.scss";
-
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
@@ -57,6 +53,7 @@ const generateStaffColor = (staffId: string) => {
 
 const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
   const calendarRef = useRef<FullCalendar>(null);
+  const dispatch = useDispatch();
 
   const [events, setEvents] = useState<EventInput[]>([]);
   const [highlightedDates, setHighlightedDates] = useState<string[]>([]);
@@ -246,6 +243,36 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
     setShowPopup(true);
   };
 
+  const handleEventDrop = (dropInfo: any) => {
+    const event = dropInfo.event;
+    const assignmentId = event.id;
+
+    const assignment = getAssignmentById(assignmentId);
+    if (!assignment) {
+      dropInfo.revert();
+      return;
+    }
+
+    const oldDate = dayjs(assignment.shiftStart);
+    const newDate = dayjs(event.start);
+    const diff = newDate.diff(oldDate, "day");
+
+    const newShiftStart = dayjs(assignment.shiftStart)
+      .add(diff, "day")
+      .toISOString();
+    const newShiftEnd = dayjs(assignment.shiftEnd)
+      .add(diff, "day")
+      .toISOString();
+
+    dispatch(
+      updateAssignment({
+        assignmentId,
+        shiftStart: newShiftStart,
+        shiftEnd: newShiftEnd,
+      })
+    );
+  };
+
   const RenderEventContent = ({ eventInfo }: any) => {
     const color = eventInfo.event.extendedProps.color;
     return (
@@ -294,82 +321,27 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
           locale={auth.language}
           plugins={getPlugins()}
           contentHeight={400}
-          handleWindowResize={true}
-          selectable={true}
-          editable={true}
-          eventOverlap={true}
-          eventDurationEditable={false}
           initialView="dayGridMonth"
           initialDate={initialDate}
           events={events}
+          editable={true}
+          eventDurationEditable={false}
+          eventOverlap={true}
+          selectable={true}
           firstDay={1}
-          eventDisplay="block"
-          dayMaxEventRows={4}
-          fixedWeekCount={true}
-          showNonCurrentDates={true}
           eventClick={handleEventClick}
+          eventDrop={(info: any) => {
+            dispatch(
+              updateAssignment({
+                assignmentId: info.event.id,
+                shiftStart: dayjs(info.event.start).toISOString(),
+                shiftEnd: dayjs(info.event.end).toISOString(),
+              })
+            );
+          }}
           eventContent={(eventInfo: any) => (
             <RenderEventContent eventInfo={eventInfo} />
           )}
-          datesSet={(info: any) => {
-            const prevButton = document.querySelector(
-              ".fc-prev-button"
-            ) as HTMLButtonElement;
-            const nextButton = document.querySelector(
-              ".fc-next-button"
-            ) as HTMLButtonElement;
-
-            if (
-              calendarRef?.current?.getApi().getDate() &&
-              !dayjs(schedule?.scheduleStartDate).isSame(
-                calendarRef?.current?.getApi().getDate()
-              )
-            )
-              setInitialDate(calendarRef?.current?.getApi().getDate());
-
-            const startDiff = dayjs(info.start)
-              .utc()
-              .diff(
-                dayjs(schedule.scheduleStartDate).subtract(1, "day").utc(),
-                "days"
-              );
-            const endDiff = dayjs(dayjs(schedule.scheduleEndDate)).diff(
-              info.end,
-              "days"
-            );
-            if (startDiff < 0 && startDiff > -35) prevButton.disabled = true;
-            else prevButton.disabled = false;
-
-            if (endDiff < 0 && endDiff > -32) nextButton.disabled = true;
-            else nextButton.disabled = false;
-          }}
-          dayCellContent={({ date }) => {
-            const formattedDate = dayjs(date).format("DD-MM-YYYY");
-            const found = validDates().includes(
-              dayjs(date).format("YYYY-MM-DD")
-            );
-            const isHighlighted = highlightedDates.includes(formattedDate);
-
-            const pairDate = pairDates.find((p) => p.date === formattedDate);
-            const isPairDate = !!pairDate;
-
-            return (
-              <div
-                className={`${found ? "" : "date-range-disabled"} ${
-                  isHighlighted ? "highlighted-date-orange" : ""
-                } ${isPairDate ? "highlightedPair" : ""}`}
-                style={
-                  isPairDate
-                    ? {
-                        borderBottom: `3px solid ${pairDate.color}`,
-                      }
-                    : undefined
-                }
-              >
-                {dayjs(date).date()}
-              </div>
-            );
-          }}
         />
       </div>
 

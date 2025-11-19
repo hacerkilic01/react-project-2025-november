@@ -1,11 +1,11 @@
 import { Provider } from "react-redux";
 import store from "./store";
 import ProfileCalendar from "./components/ProfileCalendar";
-import './App.css'
+import "./App.css";
 
 function App() {
   return (
-    <Provider store={store()}>
+    <Provider store={store}>
       <ProfileCalendar />
     </Provider>
   );
