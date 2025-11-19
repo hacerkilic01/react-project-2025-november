@@ -28,7 +28,6 @@ type CalendarContainerProps = {
   auth: UserInstance;
 };
 
-// Shift ve staff bazlı renk üretme fonksiyonu
 const generateColor = (shiftId: string, staffId: string) => {
   const hash = (str: string) => {
     let h = 0;
@@ -43,6 +42,19 @@ const generateColor = (shiftId: string, staffId: string) => {
   return `hsl(${hue}, 65%, 55%)`;
 };
 
+const generateStaffColor = (staffId: string) => {
+  const hash = (str: string) => {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = str.charCodeAt(i) + ((h << 5) - h);
+    }
+    return h;
+  };
+
+  const hue = Math.abs(hash(staffId)) % 360;
+  return `hsl(${hue}, 70%, 50%)`;
+};
+
 const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
   const calendarRef = useRef<FullCalendar>(null);
 
@@ -51,6 +63,9 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [showPopup, setShowPopup] = useState<boolean>(false);
+  const [pairDates, setPairDates] = useState<{ date: string; color: string }[]>(
+    []
+  );
   const [initialDate, setInitialDate] = useState<Date>(
     dayjs(schedule?.scheduleStartDate).toDate()
   );
@@ -99,6 +114,42 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
     }
 
     return dates;
+  };
+
+  const calculatePairDates = () => {
+    if (!selectedStaffId) return [];
+
+    const selectedStaff = schedule?.staffs?.find(
+      (staff) => staff.id === selectedStaffId
+    );
+
+    if (!selectedStaff?.pairList || selectedStaff.pairList.length === 0) {
+      return [];
+    }
+
+    const pairDatesWithColors: { date: string; color: string }[] = [];
+
+    selectedStaff.pairList.forEach((pairInfo: any) => {
+      const pairStaffId = pairInfo.staffId;
+      const pairColor = generateStaffColor(pairStaffId);
+
+      const startDate = dayjs(pairInfo.startDate, "DD.MM.YYYY");
+      const endDate = dayjs(pairInfo.endDate, "DD.MM.YYYY");
+
+      let currentDate = startDate;
+      while (
+        currentDate.isBefore(endDate) ||
+        currentDate.isSame(endDate, "day")
+      ) {
+        pairDatesWithColors.push({
+          date: currentDate.format("DD-MM-YYYY"),
+          color: pairColor,
+        });
+        currentDate = currentDate.add(1, "day");
+      }
+    });
+
+    return pairDatesWithColors;
   };
 
   const generateStaffBasedCalendar = () => {
@@ -161,6 +212,9 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
 
     setHighlightedDates(highlightedDates);
     setEvents(works);
+
+    const calculatedPairDates = calculatePairDates();
+    setPairDates(calculatedPairDates);
   };
 
   useEffect(() => {
@@ -290,18 +344,27 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
             else nextButton.disabled = false;
           }}
           dayCellContent={({ date }) => {
+            const formattedDate = dayjs(date).format("DD-MM-YYYY");
             const found = validDates().includes(
               dayjs(date).format("YYYY-MM-DD")
             );
-            const isHighlighted = highlightedDates.includes(
-              dayjs(date).format("DD-MM-YYYY")
-            );
+            const isHighlighted = highlightedDates.includes(formattedDate);
+
+            const pairDate = pairDates.find((p) => p.date === formattedDate);
+            const isPairDate = !!pairDate;
 
             return (
               <div
                 className={`${found ? "" : "date-range-disabled"} ${
                   isHighlighted ? "highlighted-date-orange" : ""
-                } highlightedPair`}
+                } ${isPairDate ? "highlightedPair" : ""}`}
+                style={
+                  isPairDate
+                    ? {
+                        borderBottom: `3px solid ${pairDate.color}`,
+                      }
+                    : undefined
+                }
               >
                 {dayjs(date).date()}
               </div>
@@ -310,7 +373,6 @@ const CalendarContainer = ({ schedule, auth }: CalendarContainerProps) => {
         />
       </div>
 
-      {/* Event Detail Popup */}
       {showPopup && selectedEvent && (
         <div
           className="event-popup-overlay"
